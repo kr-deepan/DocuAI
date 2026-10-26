@@ -1,0 +1,13 @@
+================================================================================
+CLOUD STORAGE SERVICE LEVEL AGREEMENT (VENDOR POLICY)
+================================================================================
+Document ID: POL-SLA-STORAGE-2024
+Effective Date: January 1, 2024
+
+1. SERVICE OVERVIEW
+This SLA defines maintenance windows, performance metrics, and support escalation protocols for underlying Object Storage services.
+
+2. MAINTENANCE WINDOWS & DOWNTIME
+2.1 Scheduled Maintenance: Scheduled routine maintenance occurs every Sunday between 02:00 UTC and 04:00 UTC. Scheduled downtime during this window does not count against monthly uptime SLA calculations.
+2.2 Emergency Maintenance: Provider reserves the right to execute emergency security patches with 2 hours advance notice.
+================================================================================

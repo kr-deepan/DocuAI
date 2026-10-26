@@ -1,0 +1,31 @@
+# Multi-Agent State Graph Orchestration (~15MB)
+langgraph>=0.2.0
+
+# OpenRouter API client (OpenAI-compatible) (~10MB)
+openai>=1.30.0
+
+# Embedded persistent local vector database (~150MB, no Docker needed)
+chromadb>=0.5.0
+
+# Pure Python BM25 keyword search for hybrid retrieval (<1MB)
+rank_bm25>=0.2.2
+
+# Fast PDF parsing & layout-aware text/table extraction (~40MB)
+pymupdf>=1.24.0
+
+# OCR fallback wrapper (<1MB wrapper; relies on system Tesseract OCR executable)
+pytesseract>=0.3.10
+
+# Image handling for PDF rendering and OCR testing (~15MB)
+pillow>=10.3.0
+
+# Async backend server (~20MB)
+fastapi>=0.111.0
+uvicorn>=0.30.0
+
+# Frontend trace UI dashboard (~60MB)
+streamlit>=1.35.0
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.7.0

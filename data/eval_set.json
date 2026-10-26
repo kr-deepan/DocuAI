@@ -1,0 +1,72 @@
+[
+  {
+    "question_id": "eval_01_termination_notice",
+    "query": "What is the termination notice period required under the contract and its amendment?",
+    "category": "contradiction",
+    "has_contradiction": true,
+    "ground_truth_chunks": [
+      "master_service_agreement_v1_chunk_4",
+      "msa_amendment_v2_chunk_4"
+    ],
+    "governing_document": "msa_amendment_v2.txt",
+    "expected_keywords": ["30 days", "90 days", "amendment", "supersedes", "governs"]
+  },
+  {
+    "question_id": "eval_02_payment_terms",
+    "query": "What are the invoicing payment terms and late fees across the agreement versions?",
+    "category": "contradiction",
+    "has_contradiction": true,
+    "ground_truth_chunks": [
+      "master_service_agreement_v1_chunk_2",
+      "msa_amendment_v2_chunk_2"
+    ],
+    "governing_document": "msa_amendment_v2.txt",
+    "expected_keywords": ["Net-30", "Net-60", "payment", "interest"]
+  },
+  {
+    "question_id": "eval_03_uptime_sla",
+    "query": "What is the guaranteed service uptime SLA and what credits apply if uptime drops?",
+    "category": "contradiction",
+    "has_contradiction": true,
+    "ground_truth_chunks": [
+      "master_service_agreement_v1_chunk_3",
+      "msa_amendment_v2_chunk_3"
+    ],
+    "governing_document": "msa_amendment_v2.txt",
+    "expected_keywords": ["99.9%", "99.95%", "credit", "10%", "20%"]
+  },
+  {
+    "question_id": "eval_04_breach_notification",
+    "query": "Within how many hours must a data security breach incident be reported?",
+    "category": "policy_override",
+    "has_contradiction": true,
+    "ground_truth_chunks": [
+      "general_security_policy_chunk_2",
+      "data_processing_addendum_2024_chunk_2"
+    ],
+    "governing_document": "data_processing_addendum_2024.txt",
+    "expected_keywords": ["72 hours", "24 hours", "personal data", "dpa"]
+  },
+  {
+    "question_id": "eval_05_scope_of_services",
+    "query": "What specific cloud infrastructure and software services does Provider agree to deliver?",
+    "category": "factual",
+    "has_contradiction": false,
+    "ground_truth_chunks": [
+      "master_service_agreement_v1_chunk_1"
+    ],
+    "governing_document": null,
+    "expected_keywords": ["cloud infrastructure", "document analytics software", "schedule a"]
+  },
+  {
+    "question_id": "eval_06_storage_maintenance",
+    "query": "When are scheduled routine maintenance windows performed for cloud object storage?",
+    "category": "factual",
+    "has_contradiction": false,
+    "ground_truth_chunks": [
+      "vendor_sla_cloud_storage_chunk_2"
+    ],
+    "governing_document": null,
+    "expected_keywords": ["Sunday", "02:00 UTC", "04:00 UTC", "maintenance"]
+  }
+]

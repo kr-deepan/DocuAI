@@ -1,0 +1,16 @@
+================================================================================
+ENTERPRISE DATA PROCESSING ADDENDUM (DPA 2024)
+================================================================================
+Document ID: DOC-DPA-2024-V1
+Effective Date: August 15, 2024
+Parties: Acme Cloud Solutions Inc. and Globex Corporation
+
+1. PURPOSE & SCOPE
+This Data Processing Addendum ("DPA") governs the processing of Personal Data under European Union data protection laws (GDPR).
+
+4. DATA BREACH MANAGEMENT
+4.1 Breach Notification Timeline: Notwithstanding any general corporate policies or standard security response timelines (such as 72-hour general policy windows), data breach notifications involving EU citizen Personal Data must be formally communicated to Client's Data Protection Officer within twenty-four (24) hours of initial discovery.
+
+7. DATA RETENTION & ERASURE
+7.1 Specialized Retention Schedule: Inactive account logs containing EU citizen personal data must be permanently erased within ninety (90) days of account termination, overriding standard 12-month log retention schedules.
+================================================================================

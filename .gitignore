@@ -1,0 +1,38 @@
+# Environment variables
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+*.so
+.pytest_cache/
+
+# ChromaDB vector store data & runtime databases
+data/chroma_db/
+*.chroma
+data/response_cache.db
+data/budget_tracker.json
+data/benchmark_results.json
+
+# Logs & agent traces
+*.jsonl
+logs/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Educational, course, and AI prompt artifacts (excluded for production repo)
+LEARNING_NOTES.md
+antigravity-project-prompt.md
+antigravity-free-tier-addendum.md
+implementation_plan.md
+docs/AI_ENGINEER_MASTER_MANUAL.md

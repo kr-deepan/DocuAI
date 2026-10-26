@@ -1,0 +1,26 @@
+================================================================================
+AMENDMENT NO. 1 TO MASTER SERVICE AGREEMENT (VERSION 2.0)
+================================================================================
+Document ID: DOC-MSA-2024-V2
+Effective Date: June 1, 2024
+Parties: Acme Cloud Solutions Inc. ("Provider") and Globex Corporation ("Client")
+
+RECITALS
+This Amendment No. 1 amends and updates the Master Service Agreement Version 1.0 (DOC-MSA-2023-V1) dated January 15, 2023. In the event of any conflict between the terms of Version 1.0 and this Version 2.0 Amendment, the terms of this Amendment shall govern and control.
+
+4. AMENDED PAYMENT & INVOICING
+4.1 Payment Terms: Section 4.1 of MSA v1 is hereby amended. All invoices are due and payable within Net-60 days from the invoice date (extending the previous Net-30 requirement). Late payments shall accrue interest at 2.0% per month.
+
+6. AMENDED SERVICE LEVEL AGREEMENT (SLA)
+6.1 Availability: Section 6.1 of MSA v1 is hereby upgraded. Provider guarantees an upgraded Service Uptime of 99.95% per calendar month.
+6.2 SLA Credits: If Uptime falls below 99.95%, Client shall receive a 20% service credit against the following month's invoice.
+
+8. AMENDED TERM AND TERMINATION
+8.1 Termination for Convenience: Section 8.1 of MSA v1 is hereby amended. Either party may terminate this Agreement without cause by providing at least ninety (90) days written notice to the other party (replacing the previous 30-day notice requirement).
+
+10. AMENDED LIMITATION OF LIABILITY
+10.1 Direct Damages: Section 10.1 of MSA v1 is hereby amended. Provider's total aggregate liability arising out of or related to this Agreement is increased to an aggregate cap of $50,000 USD.
+
+12. AMENDED DATA STORAGE AND RESIDENCY
+12.1 Storage Location: Section 12.1 of MSA v1 is hereby amended. Primary Customer Data shall be stored and processed in EU-West data centers (Frankfurt), with secondary backup replication to US-East data centers.
+================================================================================
