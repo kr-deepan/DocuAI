@@ -3,6 +3,7 @@ Document Loader Module
 Parses text files, PDFs via PyMuPDF (fitz), and images via pytesseract OCR fallback.
 """
 import os
+import io
 import logging
 from typing import List, Dict, Any
 import pymupdf  # PyMuPDF
@@ -35,6 +36,65 @@ class DocumentLoader:
             return self._load_pdf(file_path, filename)
         elif ext in [".png", ".jpg", ".jpeg", ".tiff"]:
             return self._load_image(file_path, filename)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
+
+    def load_bytes(self, content_bytes: bytes, filename: str) -> Document:
+        """Loads a document from raw bytes (e.g. from file upload or API), applying OCR fallback if needed."""
+        ext = os.path.splitext(filename)[1].lower()
+
+        if ext == ".txt":
+            content = content_bytes.decode("utf-8", errors="ignore")
+            metadata = {
+                "source_doc": filename,
+                "file_type": "txt",
+                "page_count": 1
+            }
+            return Document(filename=filename, content=content, metadata=metadata)
+        elif ext == ".pdf":
+            doc = pymupdf.open(stream=content_bytes, filetype="pdf")
+            full_text = []
+            page_count = len(doc)
+
+            for page_num in range(page_count):
+                page = doc[page_num]
+                text = page.get_text()
+
+                if len(text.strip()) < self.ocr_min_chars:
+                    print(f"[OCR FALLBACK] Page {page_num + 1} of '{filename}' has insufficient text. Running Tesseract OCR...")
+                    pix = page.get_pixmap()
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    try:
+                        ocr_text = pytesseract.image_to_string(img)
+                        text = ocr_text if ocr_text.strip() else text
+                    except Exception as e:
+                        logger.warning(f"OCR failed on page {page_num + 1}: {e}")
+
+                full_text.append(text)
+
+            doc.close()
+            combined_content = "\n\n".join(full_text)
+            metadata = {
+                "source_doc": filename,
+                "file_type": "pdf",
+                "page_count": page_count
+            }
+            return Document(filename=filename, content=combined_content, metadata=metadata)
+        elif ext in [".png", ".jpg", ".jpeg", ".tiff"]:
+            print(f"[OCR EXTRACTION] Extracting text from image file '{filename}' via Tesseract...")
+            try:
+                img = Image.open(io.BytesIO(content_bytes))
+                content = pytesseract.image_to_string(img)
+            except Exception as e:
+                logger.error(f"Failed to run Tesseract OCR on {filename}: {e}")
+                content = f"[OCR Failed for {filename}]"
+
+            metadata = {
+                "source_doc": filename,
+                "file_type": "image",
+                "page_count": 1
+            }
+            return Document(filename=filename, content=content, metadata=metadata)
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
 

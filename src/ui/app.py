@@ -1,6 +1,7 @@
 """
 DocuAI: Contradiction-Aware Multi-Agent Document Intelligence Dashboard
 Streamlit UI module (identical to root app.py for dual-path compatibility).
+Supports isolated multi-project workspaces, document upload & extraction, SQLite persistence, and 5-node auditing.
 """
 import sys
 import os
@@ -25,7 +26,10 @@ st.set_page_config(
 
 from src.config import DAILY_REQUEST_BUDGET
 from src.core.budget import budget_guard
+from src.core.database import db_manager
 from src.vector_store import vector_store
+from src.ingestion import IngestionPipeline, ingest_project_file_bytes
+from src.retrieval.hybrid_search import get_hybrid_retriever
 from src.graph import run_agent_system
 from src.baselines.naive_rag import naive_rag
 from src.agents.synthesis import extract_citations
@@ -33,18 +37,132 @@ from src.agents.synthesis import extract_citations
 # -----------------------------------------------------------------------------
 # Sidebar Configuration
 # -----------------------------------------------------------------------------
-st.sidebar.title("⚙️ System Control")
+st.sidebar.title("⚖️ DocuAI Workspace")
 
-# Mode Selection
+# 1. Mode Selection
 execution_mode = st.sidebar.radio(
     "Execution Mode",
     ["Contradiction-Aware Multi-Agent (5 Nodes)", "Naive Single-Shot RAG (Baseline)"],
-    help="Compare the multi-agent state graph against standard linear RAG"
+    help="Compare the 5-node multi-agent state graph against standard linear RAG"
 )
 
 st.sidebar.markdown("---")
 
-# Daily Budget Meter
+# 2. Project Workspace Selector
+st.sidebar.subheader("📁 Project Workspace")
+
+projects = db_manager.list_projects()
+project_map = {p["id"]: p for p in projects}
+project_ids = list(project_map.keys())
+
+if "selected_project_id" not in st.session_state or st.session_state["selected_project_id"] not in project_map:
+    st.session_state["selected_project_id"] = "default"
+
+def format_project_label(pid: str) -> str:
+    p = project_map.get(pid, {})
+    return f"{p.get('name', pid)} [{pid}] ({p.get('document_count', 0)} docs)"
+
+selected_index = project_ids.index(st.session_state["selected_project_id"]) if st.session_state["selected_project_id"] in project_ids else 0
+
+selected_project_id = st.sidebar.selectbox(
+    "Active Workspace Project",
+    options=project_ids,
+    index=selected_index,
+    format_func=format_project_label,
+    help="All document uploads, ChromaDB embeddings, BM25 indices, and contradiction queries are strictly isolated to this project."
+)
+st.session_state["selected_project_id"] = selected_project_id
+current_project = project_map.get(selected_project_id, {})
+
+# Display active project metadata badge
+st.sidebar.caption(f"📝 {current_project.get('description', 'Isolated workspace')}")
+
+# 3. Create New Project Expander
+with st.sidebar.expander("➕ Create New Project", expanded=False):
+    new_proj_name = st.text_input("Project Name", placeholder="e.g. Healthcare Vendor Auditing", key="new_proj_name_input")
+    new_proj_id = st.text_input("Project ID (slug)", placeholder="e.g. healthcare_vendor", key="new_proj_id_input")
+    new_proj_desc = st.text_area("Description (optional)", placeholder="Contract review and SLA compliance auditing...", key="new_proj_desc_input")
+    
+    if st.button("Create Project", type="secondary", use_container_width=True):
+        if new_proj_name.strip() and new_proj_id.strip():
+            clean_id = new_proj_id.strip().lower().replace(" ", "_")
+            if clean_id in project_map:
+                st.sidebar.error(f"Project ID '{clean_id}' already exists!")
+            else:
+                try:
+                    db_manager.create_project(clean_id, new_proj_name.strip(), new_proj_desc.strip())
+                    st.session_state["selected_project_id"] = clean_id
+                    st.sidebar.success(f"Workspace '{new_proj_name}' created!")
+                    st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"Creation failed: {e}")
+        else:
+            st.sidebar.warning("Please provide both Name and ID.")
+
+# 4. Upload Documents Expander
+with st.sidebar.expander("📤 Upload Documents", expanded=False):
+    st.write(f"Target Project: **{current_project.get('name', selected_project_id)}**")
+    uploaded_files = st.file_uploader(
+        "Upload files (.pdf, .txt, .png, .jpg)",
+        type=["txt", "pdf", "png", "jpg", "jpeg"],
+        accept_multiple_files=True,
+        key=f"uploader_{selected_project_id}"
+    )
+    
+    if uploaded_files and st.button("🚀 Ingest & Index", type="primary", use_container_width=True):
+        total_indexed_chunks = 0
+        progress_bar = st.progress(0.0)
+        status_text = st.empty()
+        
+        for i, up_file in enumerate(uploaded_files):
+            status_text.text(f"Processing '{up_file.name}'...")
+            try:
+                count = ingest_project_file_bytes(
+                    project_id=selected_project_id,
+                    file_bytes=up_file.getvalue(),
+                    filename=up_file.name
+                )
+                total_indexed_chunks += count
+            except Exception as e:
+                st.error(f"Failed to ingest {up_file.name}: {e}")
+            progress_bar.progress((i + 1) / len(uploaded_files))
+            
+        status_text.text("Ingestion and indexing complete!")
+        st.success(f"Successfully indexed {len(uploaded_files)} document(s) ({total_indexed_chunks} chunks) into '{selected_project_id}'!")
+        st.rerun()
+
+# 5. Project Documents List & Deletion
+proj_chunks = vector_store.get_count(selected_project_id)
+proj_docs = db_manager.get_project_documents(selected_project_id)
+
+st.sidebar.write(f"**Total Indexed Chunks**: `{proj_chunks}`")
+
+with st.sidebar.expander(f"📑 Ingested Documents ({len(proj_docs)})", expanded=False):
+    if proj_docs:
+        for d in proj_docs:
+            st.markdown(f"- **{d['filename']}**  \n  `{d.get('chunk_count', 0)} chunks` • `{d.get('file_type', 'txt')}` • `{d.get('file_size', 0):,} bytes`")
+    else:
+        st.info("No documents in this project yet. Use 'Upload Documents' above to add files.")
+
+# Re-index button for active project
+col_act1, col_act2 = st.sidebar.columns(2)
+if col_act1.button("🔄 Re-Index", help="Re-sync hybrid retriever index for this project"):
+    with st.spinner("Re-syncing BM25 index..."):
+        get_hybrid_retriever(selected_project_id).refresh_index()
+        st.sidebar.success("BM25 Index refreshed!")
+        st.rerun()
+
+if selected_project_id != "default":
+    if col_act2.button("🗑️ Delete", help="Delete this project workspace and all its data"):
+        vector_store.delete_project_collection(selected_project_id)
+        db_manager.delete_project(selected_project_id)
+        st.session_state["selected_project_id"] = "default"
+        st.sidebar.success(f"Project '{selected_project_id}' deleted.")
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# 6. Daily Budget Meter
 st.sidebar.subheader("📊 OpenRouter Request Budget")
 requests_used = budget_guard.get_usage()
 ceiling = DAILY_REQUEST_BUDGET
@@ -62,66 +180,19 @@ elif requests_used >= 35:
 else:
     st.sidebar.success("✅ Quota within safe operational limits.")
 
-st.sidebar.markdown("---")
-
-# Document Corpus Explorer
-st.sidebar.subheader("📂 Document Corpus")
-
-# Auto-ingest sample corpus on first launch if ChromaDB is empty (e.g. on clean cloud deployment)
-try:
-    stored = vector_store.collection.get()
-    total_chunks = len(stored.get("ids", [])) if stored else 0
-except Exception as e:
-    stored = None
-    total_chunks = 0
-
-if total_chunks == 0:
-    with st.spinner("📦 Initializing sample document corpus in ChromaDB (first run)..."):
-        try:
-            from src.ingestion import IngestionPipeline
-            from src.retrieval.hybrid_search import hybrid_retriever
-            pipeline = IngestionPipeline()
-            pipeline.run(reset_existing=True)
-            hybrid_retriever.refresh_index()
-            stored = vector_store.collection.get()
-            total_chunks = len(stored.get("ids", [])) if stored else 0
-            st.sidebar.success(f"Indexed {total_chunks} chunks successfully!")
-        except Exception as e:
-            st.sidebar.error(f"Auto-ingestion note: {e}")
-
-st.sidebar.write(f"**Total Indexed Chunks**: `{total_chunks}`")
-
-if st.sidebar.button("🔄 Re-Index Corpus", help="Re-process all documents in data/sample_docs/"):
-    with st.spinner("Re-indexing document corpus..."):
-        try:
-            from src.ingestion import IngestionPipeline
-            from src.retrieval.hybrid_search import hybrid_retriever
-            pipeline = IngestionPipeline()
-            pipeline.run(reset_existing=True)
-            hybrid_retriever.refresh_index()
-            st.sidebar.success("Corpus re-indexed successfully!")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Re-indexing failed: {e}")
-
-with st.sidebar.expander("View Ingested Documents"):
-    if stored and stored.get("metadatas"):
-        docs_summary = {}
-        for m in stored["metadatas"]:
-            doc = m.get("source_doc", "unknown")
-            docs_summary[doc] = docs_summary.get(doc, 0) + 1
-        for d, count in docs_summary.items():
-            st.write(f"- `{d}` ({count} chunks)")
-    else:
-        st.write("No documents indexed.")
-
 # -----------------------------------------------------------------------------
-# Main Header
+# Main Header & Project Context Banner
 # -----------------------------------------------------------------------------
 st.title("⚖️ DocuAI: Multi-Agent Document Intelligence")
-st.caption("Contradiction-Aware State-Graph Multi-Agent Architecture for Enterprise Contract & Policy Auditing")
+st.caption("Contradiction-Aware State-Graph Multi-Agent Architecture with Isolated Multi-Project Workspaces")
 
-# Sample Query Presets
+st.info(
+    f"🔒 **Active Isolated Workspace**: `{current_project.get('name', selected_project_id)}` "
+    f"(`ID: {selected_project_id}`) — **{proj_chunks} chunks** indexed across **{len(proj_docs)} documents**. "
+    f"All retrieval, verification, and contradiction auditing strictly operates within this project."
+)
+
+# Sample Query Presets (Active for default legal corpus, or inspiration for custom projects)
 st.markdown("##### 💡 1-Click Sample Presets:")
 preset_cols = st.columns(4)
 
@@ -147,12 +218,12 @@ run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=
 # Execution & Trace Display
 # -----------------------------------------------------------------------------
 if run_button and query.strip():
-    with st.spinner("Executing agent pipeline..."):
+    with st.spinner(f"Executing agent pipeline on workspace '{selected_project_id}'..."):
         if execution_mode.startswith("Naive"):
             # ---------------------------------------------------------
-            # Naive Baseline Execution
+            # Naive Baseline Execution (Project-Scoped)
             # ---------------------------------------------------------
-            res = naive_rag.query(query)
+            res = naive_rag.query(query, project_id=selected_project_id)
             answer = res.get("answer", "")
             retrieved = res.get("retrieved_chunks", [])
             latency = res.get("latency_ms", 0)
@@ -168,7 +239,7 @@ if run_button and query.strip():
             st.markdown("### 📝 Synthesized Answer")
             st.markdown(answer)
 
-            st.markdown("### 🔍 Retrieved Chunks (Stuffed Directly into Prompt)")
+            st.markdown(f"### 🔍 Retrieved Chunks ({len(retrieved)} from workspace '{selected_project_id}')")
             for idx, c in enumerate(retrieved, 1):
                 meta = c.get("metadata", {})
                 with st.expander(f"Chunk {idx}: {meta.get('source_doc')} - {meta.get('section_header')}"):
@@ -176,9 +247,9 @@ if run_button and query.strip():
 
         else:
             # ---------------------------------------------------------
-            # Full 5-Node Multi-Agent Execution
+            # Full 5-Node Multi-Agent Execution (Project-Scoped)
             # ---------------------------------------------------------
-            final_state = run_agent_system(query)
+            final_state = run_agent_system(query, project_id=selected_project_id)
             traces = final_state.get("trace_logs", [])
             retrieved = final_state.get("retrieved_chunks", [])
             citations = final_state.get("citations", [])
@@ -198,7 +269,7 @@ if run_button and query.strip():
             st.markdown("---")
 
             # ---------------------------------------------------------
-            # THE DEMO MOMENT: Visual Step-by-Step Agent Trace
+            # Visual Step-by-Step Agent Trace
             # ---------------------------------------------------------
             st.markdown("### 🧠 Live Agent State Machine Trace")
             trace_tabs = st.tabs([
@@ -222,7 +293,7 @@ if run_button and query.strip():
             # Tab 2: Retrieval
             with trace_tabs[1]:
                 ret_trace = next((t for t in traces if t.get("agent_name") == "retriever"), {})
-                st.write("**Role**: Executes Dense Vector + BM25 keyword search merged via Reciprocal Rank Fusion (RRF).")
+                st.write(f"**Role**: Executes Dense Vector + BM25 keyword search strictly against workspace `{selected_project_id}`.")
                 st.write(f"- **Retrieved Chunks Count**: `{len(retrieved)}` | **Strategy**: `Hybrid Dense + BM25 (RRF k=60)`")
                 for idx, c in enumerate(retrieved, 1):
                     meta = c.get("metadata", {})
@@ -252,7 +323,7 @@ if run_button and query.strip():
             # Tab 5: Contradiction Agent
             with trace_tabs[4]:
                 contra_trace = next((t for t in traces if t.get("agent_name") == "contradiction"), {})
-                st.write("**Role**: Compares claims across document versions and resolves governing precedence.")
+                st.write("**Role**: Compares claims across document versions in this workspace and resolves governing precedence.")
                 if conflicts:
                     st.warning(f"⚠️ Detected {len(conflicts)} Cross-Document Contradiction(s)!")
                     for idx, conf in enumerate(conflicts, 1):
@@ -269,7 +340,7 @@ if run_button and query.strip():
             # ---------------------------------------------------------
             # Final Verified Answer Display
             # ---------------------------------------------------------
-            st.markdown("### 📄 Final Grounded Answer & Contradiction Alerts")
+            st.markdown(f"### 📄 Final Grounded Answer & Contradiction Alerts (Workspace: `{selected_project_id}`)")
             st.markdown(final_ans)
 
             st.markdown("---")
@@ -277,11 +348,11 @@ if run_button and query.strip():
             # ---------------------------------------------------------
             # Evidence Chunks Accordion Viewer
             # ---------------------------------------------------------
-            st.markdown("### 📚 Retrieved Evidence Documents")
+            st.markdown(f"### 📚 Retrieved Evidence Documents ({len(retrieved)} chunks)")
             for idx, c in enumerate(retrieved, 1):
                 meta = c.get("metadata", {})
                 cid = c.get("chunk_id")
                 is_cited = "✅ Cited" if cid in citations else "Uncited"
                 with st.expander(f"Chunk {idx}: [{cid}] {meta.get('source_doc')} - {meta.get('section_header')} ({is_cited})"):
-                    st.write(f"**RRF Score**: `{c.get('rrf_score', 0):.4f}` | **Version**: `{meta.get('version')}`")
+                    st.write(f"**RRF Score**: `{c.get('rrf_score', 0):.4f}` | **Version**: `{meta.get('version')}` | **Project**: `{meta.get('project_id', selected_project_id)}`")
                     st.markdown(f"```text\n{c.get('text', '')}\n```")

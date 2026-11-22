@@ -134,3 +134,47 @@ Located in `src/ui/app.py`, the interactive dashboard provides the "demo moment"
 3. **Live Quota Gauge**: Real-time progress meter tracking OpenRouter daily limits.
 4. **1-Click Presets**: Pre-configured query buttons for termination notice periods, payment terms, and breach notification windows.
 
+---
+
+## 7. Multi-Project Isolated Workspaces & Database Architecture
+
+DocuAI features a strict multi-tenant workspace architecture. Enterprise legal audits require complete isolation between distinct engagements (e.g. M&A audits, vendor evaluations, compliance reviews):
+
+```mermaid
+flowchart TD
+    subgraph Multi-Project Management Layer
+        UI[Streamlit UI / REST API] --> DB[(SQLite: data/projects.db)]
+        DB -->|Projects Table| PRec[Project Workspace Records]
+        DB -->|Documents Table| DRec[Raw Text & Metadata Storage]
+    end
+
+    subgraph Project Scoped Vector Storage
+        Ingest[Document Ingestion Engine] -->|project_id='default'| ChromaDef[(Chroma: contradiction_aware_docs)]
+        Ingest -->|project_id='alpha'| ChromaAlpha[(Chroma: proj_alpha)]
+        Ingest -->|project_id='beta'| ChromaBeta[(Chroma: proj_beta)]
+    end
+
+    subgraph Project Scoped Hybrid Retrieval
+        Query[User Query + project_id] --> Registry[Retriever Registry: get_hybrid_retriever]
+        Registry -->|Scoped Search| ChromaAlpha
+        Registry -->|Scoped BM25| BM25Alpha[BM25 Index: Alpha Chunks Only]
+        BM25Alpha & ChromaAlpha --> RRF[Reciprocal Rank Fusion]
+        RRF --> LangGraphNode[LangGraph 5-Node State Machine]
+    end
+```
+
+### 1. Relational Persistence (`data/projects.db`)
+- **`projects` Table**: Tracks `id` (primary key slug), human-readable `name`, `description`, and `created_at`.
+- **`documents` Table**: Stores the full raw and parsed text content, original `filename`, `file_type`, `file_size`, and generated `chunk_count`.
+- **Cascading Integrity**: `FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE` guarantees that deleting a workspace purges all associated documents.
+
+### 2. Physical Vector Space Partitioning
+- ChromaDB collections are dynamically created per project (`proj_{clean_id}`).
+- This guarantees **mathematical isolation**: unlike soft metadata filtering (which can leak under fuzzy search), distinct HNSW graph indices prevent any cross-tenant vector contamination.
+- The `"default"` project maps to `contradiction_aware_docs`, preserving 100% backward compatibility with pre-indexed benchmark datasets.
+
+### 3. Lexical BM25 Isolation
+- Each project workspace maintains an isolated in-memory `BM25Okapi` inverted index.
+- Inverse Document Frequency (IDF) scores are computed strictly within the project's corpus, preventing term frequency skewing across projects.
+
+

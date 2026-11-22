@@ -10,44 +10,55 @@ This system is designed specifically to analyze enterprise documents (such as co
 
 ## 🎯 Architecture Overview
 
-The system uses a state-graph multi-agent architecture:
+The system uses a state-graph multi-agent architecture with **isolated multi-project workspaces**:
 
 ```
-                  ┌──────────────────────┐
-                  │   User Query Input   │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │  Orchestrator Agent  │
-                  └──────────┬───────────┘
-                             │ (Decompose & Route)
-                             ▼
-                  ┌──────────────────────┐
-                  │   Retrieval Agent    │◄───────────┐
-                  │ (Hybrid Dense+BM25)  │            │
-                  └──────────┬───────────┘            │
-                             │                        │
-                             ▼                        │ Re-retrieve
-                  ┌──────────────────────┐            │ (if unsupported)
-                  │   Synthesis Agent    │            │
-                  └──────────┬───────────┘            │
-                             │                        │
-                             ▼                        │
-                  ┌──────────────────────┐            │
-                  │  Verification Critic │────────────┘
-                  └──────────┬───────────┘
-                             │ (Grounding Verified)
-                             ▼
-                  ┌──────────────────────┐
-                  │ Contradiction Agent  │
-                  └──────────┬───────────┘
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │    Final Response    │
-                  └──────────────────────┘
+                  ┌──────────────────────────────────────────────┐
+                  │   User Query + Isolated Project Workspace    │
+                  └──────────────────────┬───────────────────────┘
+                                         │
+                                         ▼
+                  ┌──────────────────────────────────────────────┐
+                  │              Orchestrator Agent              │
+                  └──────────────────────┬───────────────────────┘
+                                         │ (Decompose & Route)
+                                         ▼
+                  ┌──────────────────────────────────────────────┐
+                  │               Retrieval Agent                │◄───────────┐
+                  │ (Hybrid Dense+BM25 Scoped to Project Index)  │            │
+                  └──────────────────────┬───────────────────────┘            │
+                                         │                                    │
+                                         ▼                                    │ Re-retrieve
+                  ┌──────────────────────────────────────────────┐            │ (if unsupported)
+                  │               Synthesis Agent                │            │
+                  └──────────────────────┬───────────────────────┘            │
+                                         │                                    │
+                                         ▼                                    │
+                  ┌──────────────────────────────────────────────┐            │
+                  │             Verification Critic              │────────────┘
+                  └──────────────────────┬───────────────────────┘
+                                         │ (Grounding Verified)
+                                         ▼
+                  ┌──────────────────────────────────────────────┐
+                  │             Contradiction Agent              │
+                  └──────────────────────┬───────────────────────┘
+                                         │
+                                         ▼
+                  ┌──────────────────────────────────────────────┐
+                  │    Final Response & Contradiction Alert      │
+                  └──────────────────────────────────────────────┘
 ```
+
+---
+
+## 📁 Multi-Project Isolated Workspaces
+
+DocuAI provides enterprise-grade multi-project tenant isolation:
+- **Project Workspaces**: Create custom projects (e.g. `healthcare_nda`, `acme_ma`) with custom names and descriptions.
+- **Document Upload & OCR**: Upload PDF, TXT, and scanned image documents directly through the Streamlit dashboard or REST API. Text is parsed via PyMuPDF or Tesseract OCR.
+- **Relational Metadata Persistence**: Backed by SQLite (`data/projects.db`), retaining raw content, file sizes, chunk counts, and foreign key cascading deletion.
+- **Strict Vector Space Partitioning**: Each project is mapped to an independent ChromaDB collection (`proj_{project_id}`) and isolated `BM25Okapi` index. Queries on Project Alpha will **never** retrieve or bleed into documents from Project Beta or the default corpus.
+- **Backward Compatibility**: The default legal corpus is preserved under project `"default"`.
 
 ---
 
@@ -130,9 +141,10 @@ python scripts/run_benchmark.py
 ```
 
 ### 5. Run Verification Suites
-Each phase of development has an automated verification script:
+Automated test harnesses validate end-to-end functionality:
 ```bash
-python scripts/verify_phase7.py   # Full API and UI validation check
+python scripts/verify_multi_project.py  # Validates multi-project creation, document upload, and strict isolation
+python scripts/verify_phase7.py         # Full API and UI validation check
 ```
 
 ---

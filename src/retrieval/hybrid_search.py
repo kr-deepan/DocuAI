@@ -41,7 +41,8 @@ def tokenize_text(text: str) -> List[str]:
     return [w for w in clean.split() if len(w) > 1]
 
 class HybridRetriever:
-    def __init__(self, top_k_dense: int = 8, top_k_bm25: int = 8, rrf_k: int = 60):
+    def __init__(self, project_id: str = "default", top_k_dense: int = 8, top_k_bm25: int = 8, rrf_k: int = 60):
+        self.project_id = project_id
         self.top_k_dense = top_k_dense
         self.top_k_bm25 = top_k_bm25
         self.rrf_k = rrf_k  # Standard RRF smoothing constant
@@ -50,9 +51,9 @@ class HybridRetriever:
         self._build_bm25_index()
 
     def _build_bm25_index(self) -> None:
-        """Pulls all stored chunks from ChromaDB and compiles the BM25 index."""
+        """Pulls all stored chunks from ChromaDB for this specific project and compiles the BM25 index."""
         try:
-            stored = vector_store.collection.get()
+            stored = vector_store.get_all_chunks(self.project_id)
             if not stored or not stored.get("ids"):
                 self.bm25_corpus = []
                 self.bm25_index = None
@@ -77,9 +78,9 @@ class HybridRetriever:
             self.bm25_corpus = corpus
             if tokenized_corpus:
                 self.bm25_index = BM25Okapi(tokenized_corpus)
-                print(f"[HYBRID RETRIEVER] BM25 index built with {len(corpus)} chunks.")
+                print(f"[HYBRID RETRIEVER] BM25 index built with {len(corpus)} chunks for project '{self.project_id}'.")
         except Exception as e:
-            print(f"[HYBRID RETRIEVER WARNING] Could not build BM25 index: {e}")
+            print(f"[HYBRID RETRIEVER WARNING] Could not build BM25 index for project '{self.project_id}': {e}")
             self.bm25_corpus = []
             self.bm25_index = None
 
@@ -93,13 +94,13 @@ class HybridRetriever:
         top_k: int = 8,
         where_filter: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Dense embedding similarity search against ChromaDB."""
+        """Dense embedding similarity search against project ChromaDB collection."""
         query_embs = openrouter_client.embed_texts(EMBEDDING_MODEL, [query])
         if not query_embs:
             return []
         
         query_emb = query_embs[0]
-        results = vector_store.similarity_search(query_emb, top_k=top_k, where_filter=where_filter)
+        results = vector_store.similarity_search(query_emb, top_k=top_k, where_filter=where_filter, project_id=self.project_id)
         return results
 
     def bm25_search(
@@ -191,5 +192,18 @@ class HybridRetriever:
         fused_items.sort(key=lambda x: x["rrf_score"], reverse=True)
         return fused_items[:top_k]
 
-# Singleton instance
-hybrid_retriever = HybridRetriever()
+    # Alias for retriever consistency
+    retrieve = search
+
+# Multi-project retriever registry
+_retriever_registry: Dict[str, HybridRetriever] = {}
+
+def get_hybrid_retriever(project_id: str = "default") -> HybridRetriever:
+    """Retrieves or instantiates an isolated HybridRetriever for a specific project."""
+    clean_id = project_id or "default"
+    if clean_id not in _retriever_registry:
+        _retriever_registry[clean_id] = HybridRetriever(project_id=clean_id)
+    return _retriever_registry[clean_id]
+
+# Singleton instance for default project (backward compatibility)
+hybrid_retriever = get_hybrid_retriever("default")

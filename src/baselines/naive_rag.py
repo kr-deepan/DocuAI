@@ -47,17 +47,17 @@ class NaiveRAGPipeline:
         self.synthesis_model = synthesis_model
         self.embedding_model = embedding_model
 
-    def retrieve(self, query: str) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, project_id: str = "default") -> List[Dict[str, Any]]:
         """
         Embeds the query and retrieves the top-k nearest chunks from ChromaDB
-        using standard dense vector similarity.
+        using standard dense vector similarity, scoped to the specified project.
         """
         query_embeddings = openrouter_client.embed_texts(self.embedding_model, [query])
         if not query_embeddings:
             return []
         
         query_emb = query_embeddings[0]
-        chunks = vector_store.similarity_search(query_emb, top_k=self.top_k)
+        chunks = vector_store.similarity_search(query_emb, top_k=self.top_k, project_id=project_id)
         return chunks
 
     def generate(self, query: str, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -108,14 +108,14 @@ class NaiveRAGPipeline:
         )
         return response
 
-    def query(self, query_str: str) -> Dict[str, Any]:
+    def query(self, query_str: str, project_id: str = "default") -> Dict[str, Any]:
         """
         Executes end-to-end Naive RAG query flow and returns structured metrics.
         """
         start_time = time.time()
 
         # Step 1: Dense Retrieval
-        retrieved_chunks = self.retrieve(query_str)
+        retrieved_chunks = self.retrieve(query_str, project_id=project_id)
 
         # Step 2: Synthesis Generation
         generation_result = self.generate(query_str, retrieved_chunks)

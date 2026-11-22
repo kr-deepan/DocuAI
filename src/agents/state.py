@@ -30,6 +30,9 @@ from typing import List, Dict, Any, Optional
 from typing_extensions import TypedDict
 
 class AgentState(TypedDict, total=False):
+    # Workspace Project ID (Multi-Project Isolation)
+    project_id: Optional[str]
+
     # User Input
     original_query: str
 

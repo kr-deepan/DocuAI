@@ -35,6 +35,7 @@ FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "openrouter/free")
 DAILY_REQUEST_BUDGET = int(os.getenv("DAILY_REQUEST_BUDGET", "45"))
 BUDGET_TRACKER_PATH = os.path.join(BASE_DIR, "data", "budget_tracker.json")
 RESPONSE_CACHE_PATH = os.path.join(BASE_DIR, "data", "response_cache.db")
+PROJECTS_DB_PATH = os.path.join(BASE_DIR, "data", "projects.db")
 
 # Vector store settings
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", os.path.join(BASE_DIR, "data", "chroma_db"))

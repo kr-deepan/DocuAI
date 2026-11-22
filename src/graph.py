@@ -121,11 +121,13 @@ def build_graph() -> StateGraph:
 # Compile executable state graph application
 agent_app = build_graph().compile()
 
-def run_agent_system(query: str) -> AgentState:
+def run_agent_system(query: str, project_id: str = "default") -> AgentState:
     """
-    Convenience execution helper that initializes state and runs the graph.
+    Convenience execution helper that initializes state and runs the graph
+    scoped to a specific project.
     """
     initial_state: AgentState = {
+        "project_id": project_id,
         "original_query": query,
         "sub_queries": [],
         "needs_retrieval": True,

@@ -27,7 +27,7 @@ import time
 from typing import Dict, Any, List
 
 from src.agents.state import AgentState
-from src.retrieval.hybrid_search import hybrid_retriever
+from src.retrieval.hybrid_search import get_hybrid_retriever, hybrid_retriever
 from src.core.trace_logger import trace_logger
 
 class RetrievalNode:
@@ -37,14 +37,17 @@ class RetrievalNode:
 
     def __call__(self, state: AgentState) -> Dict[str, Any]:
         start_time = time.time()
+        project_id = state.get("project_id") or "default"
         sub_queries = state.get("sub_queries") or [state.get("original_query", "")]
         where_filter = state.get("retrieval_filters")
 
+        # Get isolated retriever for the active project
+        retriever = get_hybrid_retriever(project_id)
         seen_chunks: Dict[str, Dict[str, Any]] = {}
 
         # Search hybrid retriever for each sub-query
         for query_str in sub_queries:
-            results = hybrid_retriever.search(
+            results = retriever.search(
                 query=query_str,
                 top_k=self.top_k_per_query,
                 where_filter=where_filter
