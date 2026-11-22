@@ -34,15 +34,16 @@ Streamlit Community Cloud is 100% free, connects directly to your GitHub reposit
    - Click **"Advanced settings"** (or go to App Settings > **Secrets** after creating).
    - Enter your OpenRouter API key in TOML format:
      ```toml
-     OPENROUTER_API_KEY = "your-openrouter-api-key-here"
+     OPENROUTER_API_KEY = "sk-or-v1-..."
      ```
-   - *(Note: If you leave this empty, DocuAI will automatically operate in offline mock mode so visitors can test the UI without errors).*
+   - *(Note: If you leave this empty, DocuAI automatically operates in offline evaluation mode or lets users input their key directly in the sidebar's "🔑 API Key & Cloud Settings" without crashing).*
 6. Click **"Deploy!"**.
 
 ### How it Works Behind the Scenes:
 - **System Binaries**: Streamlit Cloud detects `packages.txt` and automatically installs `tesseract-ocr` and `libtesseract-dev`.
 - **Python Dependencies**: Installs packages listed in `requirements.txt`.
-- **Auto-Ingestion on Clean Launch**: When ChromaDB is empty on first boot, `src/ui/app.py` automatically detects 0 indexed chunks and triggers `IngestionPipeline().run()`, indexing the sample legal corpus (`data/sample_docs/`) into ChromaDB and building the BM25 index in $< 10\text{ seconds}$.
+- **Auto-Initialization & Self-Healing**: On launch, if ChromaDB or SQLite database is empty on an ephemeral cloud instance, `app.py` automatically initializes the database, registers the default workspace, and indexes the sample legal corpus (`data/sample_docs/`) into ChromaDB and BM25 in $< 10\text{ seconds}$.
+- **Multi-Project Isolation**: Users can create isolated project workspaces, upload custom documents (.pdf, .txt, .png), and run contradiction audits strictly within that project.
 
 ---
 

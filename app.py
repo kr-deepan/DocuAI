@@ -27,12 +27,29 @@ st.set_page_config(
 from src.config import DAILY_REQUEST_BUDGET
 from src.core.budget import budget_guard
 from src.core.database import db_manager
+from src.core.openrouter_client import openrouter_client
 from src.vector_store import vector_store
 from src.ingestion import IngestionPipeline, ingest_project_file_bytes
 from src.retrieval.hybrid_search import get_hybrid_retriever
 from src.graph import run_agent_system
 from src.baselines.naive_rag import naive_rag
 from src.agents.synthesis import extract_citations
+
+# -----------------------------------------------------------------------------
+# First-Run Auto-Initialization (Ensures cloud deployment is never empty)
+# -----------------------------------------------------------------------------
+try:
+    default_chunks = vector_store.get_count("default")
+except Exception:
+    default_chunks = 0
+
+if default_chunks == 0:
+    try:
+        pipeline = IngestionPipeline()
+        pipeline.run(reset_existing=True, project_id="default")
+        default_chunks = vector_store.get_count("default")
+    except Exception as e:
+        print(f"[AUTO-INGESTION NOTICE] {e}")
 
 # -----------------------------------------------------------------------------
 # Sidebar Configuration
@@ -48,10 +65,43 @@ execution_mode = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
-# 2. Project Workspace Selector
+# 2. OpenRouter API Key Status & Configuration
+active_key = openrouter_client.get_active_api_key()
+has_valid_key = bool(active_key and not ("placeholder" in active_key.lower() or "your_openrouter_api_key_here" in active_key.lower()))
+
+with st.sidebar.expander("🔑 API Key & Cloud Settings", expanded=not has_valid_key):
+    if has_valid_key:
+        st.success("✅ Live OpenRouter Key Connected")
+        masked_key = active_key[:7] + "..." + active_key[-4:] if len(active_key) > 12 else "***"
+        st.caption(f"Active key: `{masked_key}`")
+    else:
+        st.warning("⚠️ No API Key Detected (Offline Mode)")
+        st.caption("Add key below or in Streamlit Cloud Secrets to enable live inference.")
+    
+    user_key_input = st.text_input(
+        "Enter OpenRouter API Key",
+        type="password",
+        placeholder="sk-or-v1-...",
+        help="Paste your free OpenRouter API key. It is saved only in this session and never committed."
+    )
+    if user_key_input.strip():
+        st.session_state["user_openrouter_key"] = user_key_input.strip()
+        openrouter_client.set_active_key(user_key_input.strip())
+        st.success("API key applied for this session!")
+        st.rerun()
+
+st.sidebar.markdown("---")
+
+# 3. Project Workspace Selector
 st.sidebar.subheader("📁 Project Workspace")
 
 projects = db_manager.list_projects()
+if not projects:
+    db_manager._seed_default_project()
+    projects = db_manager.list_projects()
+if not projects:
+    projects = [{"id": "default", "name": "Default Legal Corpus", "description": "Pre-indexed enterprise contract and SLA sample documents", "document_count": 6, "total_chunks": 21}]
+
 project_map = {p["id"]: p for p in projects}
 project_ids = list(project_map.keys())
 
@@ -77,7 +127,7 @@ current_project = project_map.get(selected_project_id, {})
 # Display active project metadata badge
 st.sidebar.caption(f"📝 {current_project.get('description', 'Isolated workspace')}")
 
-# 3. Create New Project Expander
+# 4. Create New Project Expander
 with st.sidebar.expander("➕ Create New Project", expanded=False):
     new_proj_name = st.text_input("Project Name", placeholder="e.g. Healthcare Vendor Auditing", key="new_proj_name_input")
     new_proj_id = st.text_input("Project ID (slug)", placeholder="e.g. healthcare_vendor", key="new_proj_id_input")
@@ -99,7 +149,7 @@ with st.sidebar.expander("➕ Create New Project", expanded=False):
         else:
             st.sidebar.warning("Please provide both Name and ID.")
 
-# 4. Upload Documents Expander
+# 5. Upload Documents Expander
 with st.sidebar.expander("📤 Upload Documents", expanded=False):
     st.write(f"Target Project: **{current_project.get('name', selected_project_id)}**")
     uploaded_files = st.file_uploader(
@@ -131,7 +181,7 @@ with st.sidebar.expander("📤 Upload Documents", expanded=False):
         st.success(f"Successfully indexed {len(uploaded_files)} document(s) ({total_indexed_chunks} chunks) into '{selected_project_id}'!")
         st.rerun()
 
-# 5. Project Documents List & Deletion
+# 6. Project Documents List & Deletion
 proj_chunks = vector_store.get_count(selected_project_id)
 proj_docs = db_manager.get_project_documents(selected_project_id)
 
@@ -144,7 +194,6 @@ with st.sidebar.expander(f"📑 Ingested Documents ({len(proj_docs)})", expanded
     else:
         st.info("No documents in this project yet. Use 'Upload Documents' above to add files.")
 
-# Re-index button for active project
 col_act1, col_act2 = st.sidebar.columns(2)
 if col_act1.button("🔄 Re-Index", help="Re-sync hybrid retriever index for this project"):
     with st.spinner("Re-syncing BM25 index..."):
@@ -162,7 +211,7 @@ if selected_project_id != "default":
 
 st.sidebar.markdown("---")
 
-# 6. Daily Budget Meter
+# 7. Daily Budget Meter
 st.sidebar.subheader("📊 OpenRouter Request Budget")
 requests_used = budget_guard.get_usage()
 ceiling = DAILY_REQUEST_BUDGET
@@ -192,7 +241,7 @@ st.info(
     f"All retrieval, verification, and contradiction auditing strictly operates within this project."
 )
 
-# Sample Query Presets (Active for default legal corpus, or inspiration for custom projects)
+# Sample Query Presets
 st.markdown("##### 💡 1-Click Sample Presets:")
 preset_cols = st.columns(4)
 
@@ -219,140 +268,145 @@ run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=
 # -----------------------------------------------------------------------------
 if run_button and query.strip():
     with st.spinner(f"Executing agent pipeline on workspace '{selected_project_id}'..."):
-        if execution_mode.startswith("Naive"):
-            # ---------------------------------------------------------
-            # Naive Baseline Execution (Project-Scoped)
-            # ---------------------------------------------------------
-            res = naive_rag.query(query, project_id=selected_project_id)
-            answer = res.get("answer", "")
-            retrieved = res.get("retrieved_chunks", [])
-            latency = res.get("latency_ms", 0)
-            tokens = res.get("usage", {}).get("total_tokens", 0)
+        try:
+            if execution_mode.startswith("Naive"):
+                # ---------------------------------------------------------
+                # Naive Baseline Execution (Project-Scoped)
+                # ---------------------------------------------------------
+                res = naive_rag.query(query, project_id=selected_project_id)
+                answer = res.get("answer", "")
+                retrieved = res.get("retrieved_chunks", [])
+                latency = res.get("latency_ms", 0)
+                tokens = res.get("usage", {}).get("total_tokens", 0)
 
-            st.info("ℹ️ Running **Naive Single-Shot RAG Baseline** (Zero agent routing, zero verification, zero contradiction detection).")
+                st.info("ℹ️ Running **Naive Single-Shot RAG Baseline** (Zero agent routing, zero verification, zero contradiction detection).")
 
-            col_m1, col_m2, col_m3 = st.columns(3)
-            col_m1.metric("End-to-End Latency", f"{latency} ms")
-            col_m2.metric("Tokens Consumed", f"{tokens}")
-            col_m3.metric("Contradiction Alert", "None (Blind)")
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("End-to-End Latency", f"{latency} ms")
+                col_m2.metric("Tokens Consumed", f"{tokens}")
+                col_m3.metric("Contradiction Alert", "None (Blind)")
 
-            st.markdown("### 📝 Synthesized Answer")
-            st.markdown(answer)
+                st.markdown("### 📝 Synthesized Answer")
+                st.markdown(answer)
 
-            st.markdown(f"### 🔍 Retrieved Chunks ({len(retrieved)} from workspace '{selected_project_id}')")
-            for idx, c in enumerate(retrieved, 1):
-                meta = c.get("metadata", {})
-                with st.expander(f"Chunk {idx}: {meta.get('source_doc')} - {meta.get('section_header')}"):
-                    st.write(c.get("text", ""))
-
-        else:
-            # ---------------------------------------------------------
-            # Full 5-Node Multi-Agent Execution (Project-Scoped)
-            # ---------------------------------------------------------
-            final_state = run_agent_system(query, project_id=selected_project_id)
-            traces = final_state.get("trace_logs", [])
-            retrieved = final_state.get("retrieved_chunks", [])
-            citations = final_state.get("citations", [])
-            conflicts = final_state.get("contradictions_found", [])
-            final_ans = final_state.get("final_answer", "")
-
-            # Performance Metrics Bar
-            total_tokens = sum([t.get("tokens", 0) for t in traces])
-            total_latency = sum([t.get("latency_ms", 0) for t in traces])
-            
-            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            m_col1.metric("Nodes Executed", f"{len(traces)}")
-            m_col2.metric("Total Latency", f"{total_latency} ms")
-            m_col3.metric("Tokens Consumed", f"{total_tokens}")
-            m_col4.metric("Contradictions Found", f"{len(conflicts)}")
-
-            st.markdown("---")
-
-            # ---------------------------------------------------------
-            # Visual Step-by-Step Agent Trace
-            # ---------------------------------------------------------
-            st.markdown("### 🧠 Live Agent State Machine Trace")
-            trace_tabs = st.tabs([
-                "1. 🧠 Orchestrator",
-                "2. 🔍 Hybrid Retriever",
-                "3. ✍️ Synthesis",
-                "4. 🛡️ Verification Critic",
-                "5. ⚖️ Contradiction Agent"
-            ])
-
-            # Tab 1: Orchestrator
-            with trace_tabs[0]:
-                orch_trace = next((t for t in traces if t.get("agent_name") == "orchestrator"), {})
-                st.write("**Role**: Analyzes query intent and decomposes into atomic search sub-queries.")
-                st.write(f"- **Execution Time**: `{orch_trace.get('latency_ms', 0)} ms` | **Tokens**: `{orch_trace.get('tokens', 0)}`")
-                sub_q = final_state.get("sub_queries", [])
-                st.write("**Decomposed Sub-Queries**:")
-                for sq in sub_q:
-                    st.info(f"🔎 `{sq}`")
-
-            # Tab 2: Retrieval
-            with trace_tabs[1]:
-                ret_trace = next((t for t in traces if t.get("agent_name") == "retriever"), {})
-                st.write(f"**Role**: Executes Dense Vector + BM25 keyword search strictly against workspace `{selected_project_id}`.")
-                st.write(f"- **Retrieved Chunks Count**: `{len(retrieved)}` | **Strategy**: `Hybrid Dense + BM25 (RRF k=60)`")
+                st.markdown(f"### 🔍 Retrieved Chunks ({len(retrieved)} from workspace '{selected_project_id}')")
                 for idx, c in enumerate(retrieved, 1):
                     meta = c.get("metadata", {})
-                    st.write(f"**[{idx}] {c.get('chunk_id')}** — `{meta.get('source_doc')}` | Section: `{meta.get('section_header')}` | RRF: `{c.get('rrf_score', 0):.4f}`")
+                    with st.expander(f"Chunk {idx}: {meta.get('source_doc')} - {meta.get('section_header')}"):
+                        st.write(c.get("text", ""))
 
-            # Tab 3: Synthesis
-            with trace_tabs[2]:
-                synth_trace = next((t for t in traces if t.get("agent_name") == "synthesis"), {})
-                st.write("**Role**: Synthesizes grounded draft answer with inline chunk ID citations.")
-                st.write(f"- **Execution Time**: `{synth_trace.get('latency_ms', 0)} ms` | **Tokens**: `{synth_trace.get('tokens', 0)}`")
-                st.write(f"**Extracted Chunk Citations ({len(citations)})**:")
-                st.code(citations)
+            else:
+                # ---------------------------------------------------------
+                # Full 5-Node Multi-Agent Execution (Project-Scoped)
+                # ---------------------------------------------------------
+                final_state = run_agent_system(query, project_id=selected_project_id)
+                traces = final_state.get("trace_logs", [])
+                retrieved = final_state.get("retrieved_chunks", [])
+                citations = final_state.get("citations", [])
+                conflicts = final_state.get("contradictions_found", [])
+                final_ans = final_state.get("final_answer", "")
 
-            # Tab 4: Critic
-            with trace_tabs[3]:
-                critic_trace = next((t for t in traces if t.get("agent_name") == "critic"), {})
-                st.write("**Role**: Verifies that every claim is grounded and checks for hallucinated citations.")
-                v_passed = final_state.get("verification_passed", True)
-                attempts = final_state.get("verification_attempts", 1)
+                # Performance Metrics Bar
+                total_tokens = sum([t.get("tokens", 0) for t in traces])
+                total_latency = sum([t.get("latency_ms", 0) for t in traces])
                 
-                if v_passed:
-                    st.success(f"✅ Grounding Verification Passed on Attempt {attempts}!")
-                else:
-                    st.error(f"❌ Verification Failed on Attempt {attempts} - Triggering Re-retrieval loop!")
-                st.write(f"**Critic Feedback**: {final_state.get('critic_feedback')}")
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                m_col1.metric("Nodes Executed", f"{len(traces)}")
+                m_col2.metric("Total Latency", f"{total_latency} ms")
+                m_col3.metric("Tokens Consumed", f"{total_tokens}")
+                m_col4.metric("Contradictions Found", f"{len(conflicts)}")
 
-            # Tab 5: Contradiction Agent
-            with trace_tabs[4]:
-                contra_trace = next((t for t in traces if t.get("agent_name") == "contradiction"), {})
-                st.write("**Role**: Compares claims across document versions in this workspace and resolves governing precedence.")
-                if conflicts:
-                    st.warning(f"⚠️ Detected {len(conflicts)} Cross-Document Contradiction(s)!")
-                    for idx, conf in enumerate(conflicts, 1):
-                        st.write(f"**Conflict {idx}: {conf.get('dimension')}**")
-                        st.write(f"- Earlier Term: {conf.get('v1_claim')}")
-                        st.write(f"- Amended Term: {conf.get('v2_claim')}")
-                        st.write(f"- Governing Authority: `{conf.get('governing_document')}`")
-                        st.write(f"- Rationale: {conf.get('resolution_rationale')}")
-                else:
-                    st.success("✅ No cross-document contradictions detected.")
+                st.markdown("---")
 
-            st.markdown("---")
+                # ---------------------------------------------------------
+                # Visual Step-by-Step Agent Trace
+                # ---------------------------------------------------------
+                st.markdown("### 🧠 Live Agent State Machine Trace")
+                trace_tabs = st.tabs([
+                    "1. 🧠 Orchestrator",
+                    "2. 🔍 Hybrid Retriever",
+                    "3. ✍️ Synthesis",
+                    "4. 🛡️ Verification Critic",
+                    "5. ⚖️ Contradiction Agent"
+                ])
 
-            # ---------------------------------------------------------
-            # Final Verified Answer Display
-            # ---------------------------------------------------------
-            st.markdown(f"### 📄 Final Grounded Answer & Contradiction Alerts (Workspace: `{selected_project_id}`)")
-            st.markdown(final_ans)
+                # Tab 1: Orchestrator
+                with trace_tabs[0]:
+                    orch_trace = next((t for t in traces if t.get("agent_name") == "orchestrator"), {})
+                    st.write("**Role**: Analyzes query intent and decomposes into atomic search sub-queries.")
+                    st.write(f"- **Execution Time**: `{orch_trace.get('latency_ms', 0)} ms` | **Tokens**: `{orch_trace.get('tokens', 0)}`")
+                    sub_q = final_state.get("sub_queries", [])
+                    st.write("**Decomposed Sub-Queries**:")
+                    for sq in sub_q:
+                        st.info(f"🔎 `{sq}`")
 
-            st.markdown("---")
+                # Tab 2: Retrieval
+                with trace_tabs[1]:
+                    ret_trace = next((t for t in traces if t.get("agent_name") == "retriever"), {})
+                    st.write(f"**Role**: Executes Dense Vector + BM25 keyword search strictly against workspace `{selected_project_id}`.")
+                    st.write(f"- **Retrieved Chunks Count**: `{len(retrieved)}` | **Strategy**: `Hybrid Dense + BM25 (RRF k=60)`")
+                    for idx, c in enumerate(retrieved, 1):
+                        meta = c.get("metadata", {})
+                        st.write(f"**[{idx}] {c.get('chunk_id')}** — `{meta.get('source_doc')}` | Section: `{meta.get('section_header')}` | RRF: `{c.get('rrf_score', 0):.4f}`")
 
-            # ---------------------------------------------------------
-            # Evidence Chunks Accordion Viewer
-            # ---------------------------------------------------------
-            st.markdown(f"### 📚 Retrieved Evidence Documents ({len(retrieved)} chunks)")
-            for idx, c in enumerate(retrieved, 1):
-                meta = c.get("metadata", {})
-                cid = c.get("chunk_id")
-                is_cited = "✅ Cited" if cid in citations else "Uncited"
-                with st.expander(f"Chunk {idx}: [{cid}] {meta.get('source_doc')} - {meta.get('section_header')} ({is_cited})"):
-                    st.write(f"**RRF Score**: `{c.get('rrf_score', 0):.4f}` | **Version**: `{meta.get('version')}` | **Project**: `{meta.get('project_id', selected_project_id)}`")
-                    st.markdown(f"```text\n{c.get('text', '')}\n```")
+                # Tab 3: Synthesis
+                with trace_tabs[2]:
+                    synth_trace = next((t for t in traces if t.get("agent_name") == "synthesis"), {})
+                    st.write("**Role**: Synthesizes grounded draft answer with inline chunk ID citations.")
+                    st.write(f"- **Execution Time**: `{synth_trace.get('latency_ms', 0)} ms` | **Tokens**: `{synth_trace.get('tokens', 0)}`")
+                    st.write(f"**Extracted Chunk Citations ({len(citations)})**:")
+                    st.code(citations)
+
+                # Tab 4: Critic
+                with trace_tabs[3]:
+                    critic_trace = next((t for t in traces if t.get("agent_name") == "critic"), {})
+                    st.write("**Role**: Verifies that every claim is grounded and checks for hallucinated citations.")
+                    v_passed = final_state.get("verification_passed", True)
+                    attempts = final_state.get("verification_attempts", 1)
+                    
+                    if v_passed:
+                        st.success(f"✅ Grounding Verification Passed on Attempt {attempts}!")
+                    else:
+                        st.error(f"❌ Verification Failed on Attempt {attempts} - Triggering Re-retrieval loop!")
+                    st.write(f"**Critic Feedback**: {final_state.get('critic_feedback')}")
+
+                # Tab 5: Contradiction Agent
+                with trace_tabs[4]:
+                    contra_trace = next((t for t in traces if t.get("agent_name") == "contradiction"), {})
+                    st.write("**Role**: Compares claims across document versions in this workspace and resolves governing precedence.")
+                    if conflicts:
+                        st.warning(f"⚠️ Detected {len(conflicts)} Cross-Document Contradiction(s)!")
+                        for idx, conf in enumerate(conflicts, 1):
+                            st.write(f"**Conflict {idx}: {conf.get('dimension')}**")
+                            st.write(f"- Earlier Term: {conf.get('v1_claim')}")
+                            st.write(f"- Amended Term: {conf.get('v2_claim')}")
+                            st.write(f"- Governing Authority: `{conf.get('governing_document')}`")
+                            st.write(f"- Rationale: {conf.get('resolution_rationale')}")
+                    else:
+                        st.success("✅ No cross-document contradictions detected.")
+
+                st.markdown("---")
+
+                # ---------------------------------------------------------
+                # Final Verified Answer Display
+                # ---------------------------------------------------------
+                st.markdown(f"### 📄 Final Grounded Answer & Contradiction Alerts (Workspace: `{selected_project_id}`)")
+                st.markdown(final_ans)
+
+                st.markdown("---")
+
+                # ---------------------------------------------------------
+                # Evidence Chunks Accordion Viewer
+                # ---------------------------------------------------------
+                st.markdown(f"### 📚 Retrieved Evidence Documents ({len(retrieved)} chunks)")
+                for idx, c in enumerate(retrieved, 1):
+                    meta = c.get("metadata", {})
+                    cid = c.get("chunk_id")
+                    is_cited = "✅ Cited" if cid in citations else "Uncited"
+                    with st.expander(f"Chunk {idx}: [{cid}] {meta.get('source_doc')} - {meta.get('section_header')} ({is_cited})"):
+                        st.write(f"**RRF Score**: `{c.get('rrf_score', 0):.4f}` | **Version**: `{meta.get('version')}` | **Project**: `{meta.get('project_id', selected_project_id)}`")
+                        st.markdown(f"```text\n{c.get('text', '')}\n```")
+
+        except Exception as e:
+            st.error(f"⚠️ Execution encountered an issue: {str(e)}")
+            st.info("💡 Note: You can provide your free OpenRouter API key in the sidebar under '🔑 API Key & Cloud Settings' or continue in offline evaluation mode.")

@@ -3,6 +3,7 @@ Unified OpenRouter API Client
 Provides budget-aware, cache-accelerated, and rotation-resilient OpenAI-compatible calls to OpenRouter.
 Includes offline mock mode when OPENROUTER_API_KEY is set to placeholder values.
 """
+import os
 import time
 import hashlib
 import logging
@@ -54,7 +55,36 @@ class OpenRouterClient:
     def __init__(self, api_key: str = OPENROUTER_API_KEY, base_url: str = OPENROUTER_BASE_URL):
         self.api_key = api_key
         self.base_url = base_url
-        self.client = OpenAI(base_url=self.base_url, api_key=self.api_key or "placeholder_key")
+        self._override_key = None
+        active = self.get_active_api_key()
+        self.client = OpenAI(base_url=self.base_url, api_key=active or "placeholder_key")
+
+    def set_active_key(self, key: str) -> None:
+        """Sets a runtime API key (e.g. from Streamlit UI or user input)."""
+        self._override_key = key.strip() if key else None
+        active = self.get_active_api_key()
+        self.client = OpenAI(base_url=self.base_url, api_key=active or "placeholder_key")
+
+    def get_active_api_key(self) -> str:
+        """Dynamically resolves the active API key across session override, Streamlit secrets, env vars, and default."""
+        if hasattr(self, "_override_key") and self._override_key:
+            return self._override_key
+        try:
+            import streamlit as st
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            if get_script_run_ctx() is not None:
+                if hasattr(st, "session_state") and "user_openrouter_key" in st.session_state and st.session_state["user_openrouter_key"]:
+                    return str(st.session_state["user_openrouter_key"]).strip()
+            if hasattr(st, "secrets"):
+                for k in ["OPENROUTER_API_KEY", "openrouter_api_key", "OPENROUTER_KEY", "openrouter_key"]:
+                    if k in st.secrets:
+                        return str(st.secrets[k]).strip()
+        except Exception:
+            pass
+        env_key = os.getenv("OPENROUTER_API_KEY", "")
+        if env_key:
+            return env_key.strip()
+        return (self.api_key or "").strip()
 
     def chat_completion(
         self,
@@ -83,7 +113,8 @@ class OpenRouterClient:
         budget_guard.check_and_increment()
 
         # 3. Check for placeholder API key
-        if _is_placeholder_key(self.api_key):
+        active_key = self.get_active_api_key()
+        if _is_placeholder_key(active_key):
             print(f"[OFFLINE MOCK CHAT] OPENROUTER_API_KEY is placeholder. Generating mock response for model '{model}'")
             mock_content = f"Mock synthesis response for offline testing. Query parsed successfully."
             result = {
@@ -94,6 +125,10 @@ class OpenRouterClient:
             }
             response_cache.set(model, payload, result)
             return result
+
+        # Ensure client uses current active key
+        if self.client.api_key != active_key:
+            self.client = OpenAI(base_url=self.base_url, api_key=active_key)
 
         # 4. Call live OpenRouter API with backoff and 1-time model fallback
         target_model = model
@@ -186,12 +221,16 @@ class OpenRouterClient:
             budget_guard.check_and_increment()
 
             # Handle offline mock mode when API key is placeholder
-            if _is_placeholder_key(self.api_key):
+            active_key = self.get_active_api_key()
+            if _is_placeholder_key(active_key):
                 print(f"[OFFLINE MOCK EMBEDDING] Generating {len(batch)} mock vectors for model '{model}'")
                 batch_embeddings = [_generate_mock_embedding(t) for t in batch]
                 all_embeddings.extend(batch_embeddings)
                 response_cache.set(model, payload, {"embeddings": batch_embeddings, "latency_ms": 5})
                 continue
+
+            if self.client.api_key != active_key:
+                self.client = OpenAI(base_url=self.base_url, api_key=active_key)
 
             start_time = time.time()
             try:

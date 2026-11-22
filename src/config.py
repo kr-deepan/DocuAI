@@ -13,23 +13,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # OpenRouter API settings
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
 # Fallback to Streamlit secrets if running inside Streamlit Cloud
 if not OPENROUTER_API_KEY:
     try:
         import streamlit as st
-        if hasattr(st, "secrets") and "OPENROUTER_API_KEY" in st.secrets:
-            OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+        if hasattr(st, "secrets"):
+            for key_variant in ["OPENROUTER_API_KEY", "openrouter_api_key", "OPENROUTER_KEY", "openrouter_key"]:
+                if key_variant in st.secrets:
+                    OPENROUTER_API_KEY = str(st.secrets[key_variant]).strip()
+                    break
     except Exception:
         pass
+
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-# Free model tiering configuration
-ORCHESTRATOR_MODEL = os.getenv("ORCHESTRATOR_MODEL", "poolside/laguna-xs-2.1:free")
-RETRIEVAL_MODEL = os.getenv("RETRIEVAL_MODEL", "poolside/laguna-xs-2.1:free")
-CRITIC_MODEL = os.getenv("CRITIC_MODEL", "poolside/laguna-s-2.1:free")
+# Free model tiering configuration (defaults aligned to active OpenRouter free roster)
+ORCHESTRATOR_MODEL = os.getenv("ORCHESTRATOR_MODEL", "nvidia/nemotron-3.5-lightning:free")
+RETRIEVAL_MODEL = os.getenv("RETRIEVAL_MODEL", "nvidia/nemotron-3.5-lightning:free")
+CRITIC_MODEL = os.getenv("CRITIC_MODEL", "nvidia/nemotron-3.5-lightning:free")
 SYNTHESIS_MODEL = os.getenv("SYNTHESIS_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2:free")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "openrouter/free")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "nvidia/nemotron-3.5-lightning:free")
 
 # Request budgeting & rate limiting
 DAILY_REQUEST_BUDGET = int(os.getenv("DAILY_REQUEST_BUDGET", "45"))

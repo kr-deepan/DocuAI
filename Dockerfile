@@ -25,6 +25,7 @@ COPY src/ ./src/
 COPY data/ ./data/
 COPY docs/ ./docs/
 COPY scripts/ ./scripts/
+COPY .streamlit/ ./.streamlit/
 COPY app.py .
 COPY README.md .
 
