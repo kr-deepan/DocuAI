@@ -159,8 +159,8 @@ Evaluated across the 6-question golden evaluation suite (`data/eval_set.json`):
 | **Retrieval Precision** | 41.7% | **34.7%** | +-7.0% (Deduplication + BM25 filtering) |
 | **Faithfulness / Grounding** | 20.0% | **100.0%** | +80.0% (Verification Critic gatekeeper) |
 | **Contradiction Detection** | 33.3% | **100.0%** | +66.7% (Explicit version comparison & precedence) |
-| **Avg Latency per Query** | 3 ms | 15 ms | Multi-node graph orchestration overhead |
-| **Avg Tokens per Query** | 70 tokens | 233 tokens | Multi-agent reasoning passes |
+| **Avg Latency per Query** | 4 ms | 3470 ms | Multi-node graph orchestration overhead |
+| **Avg Tokens per Query** | 70 tokens | 1463 tokens | Multi-agent reasoning passes |
 
 ---
 
