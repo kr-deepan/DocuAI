@@ -114,9 +114,35 @@ st.sidebar.markdown("---")
 
 # Document Corpus Explorer
 st.sidebar.subheader("📂 Document Corpus")
+
+# Auto-ingest sample corpus on first launch if ChromaDB is empty (e.g. on clean cloud deployment)
 stored = vector_store.collection.get()
 total_chunks = len(stored.get("ids", [])) if stored else 0
+if total_chunks == 0:
+    with st.spinner("📦 First-time cloud setup: Ingesting sample corpus into ChromaDB..."):
+        try:
+            from src.ingestion import IngestionPipeline
+            from src.retrieval.hybrid_search import hybrid_retriever
+            pipeline = IngestionPipeline()
+            pipeline.run(reset_existing=True)
+            hybrid_retriever.refresh_index()
+            stored = vector_store.collection.get()
+            total_chunks = len(stored.get("ids", [])) if stored else 0
+            st.sidebar.success(f"Indexed {total_chunks} chunks successfully!")
+        except Exception as e:
+            st.sidebar.error(f"Auto-ingestion error: {e}")
+
 st.sidebar.write(f"**Total Indexed Chunks**: `{total_chunks}`")
+
+if st.sidebar.button("🔄 Re-Index Corpus", help="Re-process all documents in data/sample_docs/"):
+    with st.spinner("Re-indexing document corpus..."):
+        from src.ingestion import IngestionPipeline
+        from src.retrieval.hybrid_search import hybrid_retriever
+        pipeline = IngestionPipeline()
+        pipeline.run(reset_existing=True)
+        hybrid_retriever.refresh_index()
+        st.sidebar.success("Corpus re-indexed!")
+        st.rerun()
 
 with st.sidebar.expander("View Ingested Documents"):
     if stored and stored.get("metadatas"):

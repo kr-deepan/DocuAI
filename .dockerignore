@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+data/chroma_db
+data/response_cache.db
+data/budget_tracker.json
+logs
+.pytest_cache
+.vscode
+.idea
