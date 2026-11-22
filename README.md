@@ -137,6 +137,18 @@ python scripts/verify_phase7.py   # Full API and UI validation check
 
 ---
 
+## 🌐 Production Deployment
+
+DocuAI is cloud-ready and supports multiple deployment architectures:
+
+- **1-Click Free Cloud Hosting (Streamlit Community Cloud)**: Connect your GitHub repo (`kr-deepan/DocuAI`), select `app.py`, and launch with zero server costs, auto-ingestion, and automatic HTTPS.
+- **Docker Containerization**: Multi-stage production container (`Dockerfile`) with system Tesseract OCR support.
+- **Docker Compose (Decoupled Full-Stack)**: Run both the Streamlit UI (port 8501) and the FastAPI backend (port 8000) with shared volumes.
+
+👉 **For the complete step-by-step deployment manual, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+---
+
 ## 📊 Benchmark Comparison (Naive RAG vs Multi-Agent)
 
 Evaluated across the 6-question golden evaluation suite (`data/eval_set.json`):
@@ -158,9 +170,14 @@ Evaluated across the 6-question golden evaluation suite (`data/eval_set.json`):
 .
 ├── .env.example                # Environment configuration template
 ├── requirements.txt            # Python dependencies (hardware-conscious)
+├── packages.txt                # System apt dependencies for cloud (tesseract-ocr)
+├── Dockerfile                  # Multi-stage production container build
+├── docker-compose.yml          # Multi-service orchestration (FastAPI + Streamlit)
+├── app.py                      # Root entrypoint for Streamlit Cloud
 ├── README.md                   # System documentation & benchmark results
 ├── docs/
-│   └── ARCHITECTURE.md         # In-depth architectural design & Mermaid diagrams
+│   ├── ARCHITECTURE.md         # In-depth architectural design & Mermaid diagrams
+│   └── DEPLOYMENT.md           # Cloud & Docker production deployment manual
 ├── data/
 │   ├── sample_docs/            # Test corpus (MSA v1, Amendment v2, DPA, etc.)
 │   ├── chroma_db/              # Persistent ChromaDB vector store
