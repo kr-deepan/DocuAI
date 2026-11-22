@@ -13,8 +13,7 @@ ENV/
 *.so
 .pytest_cache/
 
-# ChromaDB vector store data & runtime databases
-data/chroma_db/
+# ChromaDB runtime databases (persisting index for instant cloud boot)
 *.chroma
 data/response_cache.db
 data/budget_tracker.json

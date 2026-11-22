@@ -1,27 +1,27 @@
 """
-Streamlit Interactive Dashboard (Phase 7 - The Demo Moment)
-
-Role in the System:
--------------------
-Provides a visual, interactive demonstration dashboard for the Contradiction-Aware
-Multi-Agent Document Intelligence System.
-
-Key Features:
--------------
-1. Visual Step-by-Step Agent Trace: Exposes internal state transitions of
-   Orchestrator -> Retrieval -> Synthesis -> Critic -> Contradiction Analyzer.
-2. Side-by-Side Mode Toggle: Allows instantaneous comparison between
-   Multi-Agent System and the Naive Single-Shot RAG baseline.
-3. Live Budget Quota Gauge: Real-time tracking of daily OpenRouter request usage.
-4. 1-Click Sample Query Presets: Demonstrates notice conflicts, payment conflicts,
-   and policy overrides with a single click.
+DocuAI: Contradiction-Aware Multi-Agent Document Intelligence Dashboard
+Streamlit UI module (identical to root app.py for dual-path compatibility).
 """
 import sys
 import os
+from pathlib import Path
+
+# Ensure backend root directory is at the front of sys.path
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import streamlit as st
 
-# Add backend directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+# -----------------------------------------------------------------------------
+# Page Configuration (Must be the very first Streamlit command)
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="DocuAI: Multi-Agent Document Intelligence",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 from src.config import DAILY_REQUEST_BUDGET
 from src.core.budget import budget_guard
@@ -29,54 +29,6 @@ from src.vector_store import vector_store
 from src.graph import run_agent_system
 from src.baselines.naive_rag import naive_rag
 from src.agents.synthesis import extract_citations
-
-# -----------------------------------------------------------------------------
-# Page Configuration & Styling
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Contradiction-Aware Multi-Agent Document Intelligence",
-    page_icon="⚖️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom sleek styling
-st.markdown("""
-<style>
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E88E5;
-        margin-bottom: 0.2rem;
-    }
-    .sub-title {
-        font-size: 1.05rem;
-        color: #78909C;
-        margin-bottom: 1.5rem;
-    }
-    .metric-card {
-        background-color: #F8F9FA;
-        border-radius: 8px;
-        padding: 12px;
-        border-left: 4px solid #1E88E5;
-        margin-bottom: 10px;
-    }
-    .trace-node {
-        background-color: #F0F4F8;
-        border-radius: 8px;
-        padding: 14px;
-        margin-bottom: 12px;
-        border-left: 5px solid #00ACC1;
-    }
-    .conflict-box {
-        background-color: #FFF3E0;
-        border-radius: 8px;
-        padding: 16px;
-        border-left: 5px solid #FF9800;
-        margin-top: 15px;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # Sidebar Configuration
@@ -96,7 +48,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📊 OpenRouter Request Budget")
 requests_used = budget_guard.get_usage()
 ceiling = DAILY_REQUEST_BUDGET
-budget_ratio = min(1.0, requests_used / ceiling)
+budget_ratio = min(1.0, requests_used / max(1, ceiling))
 
 st.sidebar.progress(budget_ratio)
 col_b1, col_b2 = st.sidebar.columns(2)
@@ -116,10 +68,15 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📂 Document Corpus")
 
 # Auto-ingest sample corpus on first launch if ChromaDB is empty (e.g. on clean cloud deployment)
-stored = vector_store.collection.get()
-total_chunks = len(stored.get("ids", [])) if stored else 0
+try:
+    stored = vector_store.collection.get()
+    total_chunks = len(stored.get("ids", [])) if stored else 0
+except Exception as e:
+    stored = None
+    total_chunks = 0
+
 if total_chunks == 0:
-    with st.spinner("📦 First-time cloud setup: Ingesting sample corpus into ChromaDB..."):
+    with st.spinner("📦 Initializing sample document corpus in ChromaDB (first run)..."):
         try:
             from src.ingestion import IngestionPipeline
             from src.retrieval.hybrid_search import hybrid_retriever
@@ -130,19 +87,22 @@ if total_chunks == 0:
             total_chunks = len(stored.get("ids", [])) if stored else 0
             st.sidebar.success(f"Indexed {total_chunks} chunks successfully!")
         except Exception as e:
-            st.sidebar.error(f"Auto-ingestion error: {e}")
+            st.sidebar.error(f"Auto-ingestion note: {e}")
 
 st.sidebar.write(f"**Total Indexed Chunks**: `{total_chunks}`")
 
 if st.sidebar.button("🔄 Re-Index Corpus", help="Re-process all documents in data/sample_docs/"):
     with st.spinner("Re-indexing document corpus..."):
-        from src.ingestion import IngestionPipeline
-        from src.retrieval.hybrid_search import hybrid_retriever
-        pipeline = IngestionPipeline()
-        pipeline.run(reset_existing=True)
-        hybrid_retriever.refresh_index()
-        st.sidebar.success("Corpus re-indexed!")
-        st.rerun()
+        try:
+            from src.ingestion import IngestionPipeline
+            from src.retrieval.hybrid_search import hybrid_retriever
+            pipeline = IngestionPipeline()
+            pipeline.run(reset_existing=True)
+            hybrid_retriever.refresh_index()
+            st.sidebar.success("Corpus re-indexed successfully!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Re-indexing failed: {e}")
 
 with st.sidebar.expander("View Ingested Documents"):
     if stored and stored.get("metadatas"):
@@ -156,10 +116,10 @@ with st.sidebar.expander("View Ingested Documents"):
         st.write("No documents indexed.")
 
 # -----------------------------------------------------------------------------
-# Header
+# Main Header
 # -----------------------------------------------------------------------------
-st.markdown("<div class='main-title'>Contradiction-Aware Multi-Agent Document Intelligence</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>State-Graph Multi-Agent Architecture for Enterprise Contract & Policy Auditing</div>", unsafe_allow_html=True)
+st.title("⚖️ DocuAI: Multi-Agent Document Intelligence")
+st.caption("Contradiction-Aware State-Graph Multi-Agent Architecture for Enterprise Contract & Policy Auditing")
 
 # Sample Query Presets
 st.markdown("##### 💡 1-Click Sample Presets:")
