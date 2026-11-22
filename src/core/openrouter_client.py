@@ -21,9 +21,7 @@ logger = logging.getLogger("OpenRouterClient")
 
 def _is_placeholder_key(key: str) -> bool:
     """Checks if API key is missing or placeholder."""
-    if not key or "your_openrouter_api_key" in key.lower() or key == "placeholder_key":
-        return True
-    return False
+    return not key or "placeholder" in key.lower() or "your_openrouter_api_key_here" in key.lower()
 
 def _generate_mock_embedding(text: str, dim: int = 1536) -> List[float]:
     """
